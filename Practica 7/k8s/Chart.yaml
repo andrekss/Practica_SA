@@ -1,0 +1,23 @@
+apiVersion: v2
+name: microservices
+description: A Helm chart for microservices deployment
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - microservices
+  - kubernetes
+  - docker
+
+maintainers:
+  - name: Your Name
+    email: your@email.com
+
+sources:
+  - https://github.com/your-username/your-repo
+
+home: https://github.com/your-username/your-repo
+
+# Helm dependencies (if any)
+dependencies: []

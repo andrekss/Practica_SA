@@ -1,0 +1,210 @@
+name: CI - Build & Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  GITHUB_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  # Job 1: Linting y Validación
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies - API Gateway
+        run: cd api-gateway && npm install --ci
+
+      - name: Lint API Gateway
+        run: cd api-gateway && npm run lint --if-present
+
+      - name: Install dependencies - Frontend
+        run: cd frontend && npm install --ci
+
+      - name: Lint Frontend
+        run: cd frontend && npm run lint --if-present
+
+      - name: Lint Services
+        run: |
+          for service in services/*/; do
+            if [ -f "$service/package.json" ]; then
+              cd "$service"
+              npm install --ci
+              npm run lint --if-present
+              cd - > /dev/null
+            fi
+          done
+
+  # Job 2: Build & Test
+  build:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Build API Gateway
+        run: cd api-gateway && npm install --ci && npm run build --if-present
+
+      - name: Build Frontend
+        run: cd frontend && npm install --ci && npm run build --if-present
+
+      - name: Build Services
+        run: |
+          for service in services/*/; do
+            if [ -f "$service/package.json" ]; then
+              cd "$service"
+              npm install --ci
+              npm run build --if-present
+              cd - > /dev/null
+            fi
+          done
+
+  # Job 3: Run Tests
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Run API Gateway Tests
+        run: cd api-gateway && npm install --ci && npm test --if-present
+        continue-on-error: true
+
+      - name: Run Frontend Tests
+        run: cd frontend && npm install --ci && npm test --if-present
+        continue-on-error: true
+
+      - name: Run Service Tests
+        run: |
+          for service in services/*/; do
+            if [ -f "$service/package.json" ]; then
+              cd "$service"
+              npm install --ci
+              npm test --if-present
+              cd - > /dev/null
+            fi
+          done
+        continue-on-error: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: |
+            api-gateway/coverage
+            frontend/coverage
+            services/*/coverage
+
+  # Job 4: Security Scanning
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Job 5: Code Quality Analysis
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONARCLOUD_TOKEN: ${{ secrets.SONARCLOUD_TOKEN }}
+        continue-on-error: true
+
+  # Summary
+  summary:
+    needs: [lint, build, test, security, quality]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Create job summary
+        run: |
+          echo "## CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Linting: ${{ needs.lint.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Build: ${{ needs.build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tests: ${{ needs.test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Security: ${{ needs.security.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Quality: ${{ needs.quality.result }}" >> $GITHUB_STEP_SUMMARY

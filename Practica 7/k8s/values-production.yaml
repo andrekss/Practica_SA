@@ -1,0 +1,153 @@
+replicaCount: 3
+
+image:
+  registry: ghcr.io
+  repository: "" # Will be overridden
+  tag: "latest"
+  pullPolicy: Always
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "microservices"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+
+service:
+  type: LoadBalancer
+  port: 443
+  targetPort: 3000
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: "api.example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: "example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: prod-tls
+      hosts:
+        - "api.example.com"
+        - "example.com"
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector:
+  workload-type: production
+
+tolerations:
+  - key: "production"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - microservices
+          topologyKey: kubernetes.io/hostname
+
+# Environment-specific configs
+environment: production
+logLevel: warn
+debug: false
+
+# Database configs - Production Managed
+database:
+  authz:
+    host: "authz-db.managed.azure.com"
+    port: 5432
+    name: "authz"
+    ssl: true
+  payroll:
+    host: "payroll-db.managed.azure.com"
+    port: 5432
+    name: "payroll"
+    ssl: true
+  notification:
+    host: "notification-db.managed.azure.com"
+    port: 5432
+    name: "notification"
+    ssl: true
+  audit:
+    host: "audit-db.managed.azure.com"
+    port: 5432
+    name: "audit"
+    ssl: true
+
+# Services configuration
+services:
+  apiGateway:
+    replicaCount: 3
+    port: 3000
+  frontend:
+    replicaCount: 2
+    port: 80
+  auditService:
+    replicaCount: 2
+    port: 3001
+  authzService:
+    replicaCount: 2
+    port: 3002
+  notificationService:
+    replicaCount: 2
+    port: 3003
+  payrollService:
+    replicaCount: 2
+    port: 3004
+
+# Monitoring and Alerts
+monitoring:
+  enabled: true
+  prometheus: true
+  alertmanager: true
+  grafana: true
+
+# Backup configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: 30  # days

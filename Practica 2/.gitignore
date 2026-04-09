@@ -1,0 +1,20 @@
+﻿# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Env
+.env
+Backend/.env
+Frontend/.env
+
+# Node
+Frontend/node_modules/
+Frontend/dist/
+
+# Misc
+.vscode/
+.idea/
+.DS_Store

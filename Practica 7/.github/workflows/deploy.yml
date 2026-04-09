@@ -1,0 +1,182 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*.*.*'
+  workflow_run:
+    workflows: ["Docker Build & Push"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name != 'workflow_dispatch'
+    environment:
+      name: staging
+      url: https://staging.${{ secrets.DOMAIN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster connection
+        run: kubectl cluster-info
+
+      - name: Create namespace
+        run: kubectl create namespace microservices-staging --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy with Helm
+        run: |
+          helm repo add myrepo ${{ secrets.HELM_REPO }}
+          helm repo update
+          
+          helm upgrade --install microservices-staging myrepo/microservices \
+            --namespace microservices-staging \
+            --values k8s/values-staging.yaml \
+            --set image.tag=${{ github.sha }} \
+            --timeout 5m \
+            --wait
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/api-gateway -n microservices-staging --timeout=5m
+          kubectl rollout status deployment/frontend -n microservices-staging --timeout=5m
+
+      - name: Run health checks
+        run: |
+          sleep 30
+          kubectl get pods -n microservices-staging
+          kubectl get services -n microservices-staging
+
+      - name: Deployment notification
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ **Deployed to Staging** - $(echo ${{ github.sha }} | cut -c1-7)'
+            })
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: production
+      url: https://${{ secrets.DOMAIN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Verify cluster connection
+        run: kubectl cluster-info
+
+      - name: Create namespace
+        run: kubectl create namespace microservices --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy with Helm
+        run: |
+          helm repo add myrepo ${{ secrets.HELM_REPO }}
+          helm repo update
+          
+          helm upgrade --install microservices myrepo/microservices \
+            --namespace microservices \
+            --values k8s/values-production.yaml \
+            --set image.tag={{ github.ref_name }} \
+            --timeout 10m \
+            --wait
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/api-gateway -n microservices --timeout=10m
+          kubectl rollout status deployment/frontend -n microservices --timeout=10m
+
+      - name: Run health checks
+        run: |
+          sleep 60
+          kubectl get pods -n microservices
+          kubectl get services -n microservices
+          kubectl top nodes
+          kubectl top pods -n microservices
+
+      - name: Create release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            Production deployment successful!
+            Deployed version: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+  rollback:
+    runs-on: ubuntu-latest
+    if: failure() && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: production
+    steps:
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Rollback deployment
+        run: helm rollback microservices -n microservices
+
+      - name: Post rollback notification
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⚠️ **Deployment Failed & Rolled Back** to previous version'
+            })

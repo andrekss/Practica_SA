@@ -1,0 +1,88 @@
+:root {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  color: #1b1f24;
+  background: linear-gradient(145deg, #f3f9ff 0%, #f9f7ed 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app-shell {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+nav {
+  display: flex;
+  gap: 12px;
+}
+
+a {
+  text-decoration: none;
+  color: #1f5ed9;
+  font-weight: 600;
+}
+
+.card {
+  background: #fff;
+  padding: 20px;
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(10, 24, 46, 0.09);
+}
+
+form {
+  display: grid;
+  gap: 10px;
+}
+
+input,
+select,
+button {
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #d7dce4;
+}
+
+button {
+  border: none;
+  background: #154ec5;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.error {
+  color: #b91c1c;
+}
+
+.ok {
+  color: #166534;
+}
+
+pre {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f4f8ff;
+  overflow-x: auto;
+}
+

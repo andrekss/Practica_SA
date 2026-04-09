@@ -1,0 +1,188 @@
+﻿services:
+  postgres-authz:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: authz
+    ports:
+      - '5433:5432'
+    volumes:
+      - authz_db:/var/lib/postgresql/data
+
+  postgres-payroll:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payroll
+    ports:
+      - '5434:5432'
+    volumes:
+      - payroll_db:/var/lib/postgresql/data
+
+  postgres-notification:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: notification
+    ports:
+      - '5435:5432'
+    volumes:
+      - notification_db:/var/lib/postgresql/data
+
+  postgres-audit:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: audit
+    ports:
+      - '5436:5432'
+    volumes:
+      - audit_db:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin) do echo 'waiting minio'; sleep 2; done;
+      /usr/bin/mc mb --ignore-existing local/payroll-csv;
+      exit 0;
+      "
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - '8025:8025'
+      - '1025:1025'
+
+  oauth-mock:
+    build: ./services/oauth-mock
+    ports:
+      - '3010:3010'
+
+  finance-mock:
+    build: ./services/finance-mock
+    ports:
+      - '3011:3011'
+
+  authz-service:
+    build: ./services/authz-service
+    environment:
+      PORT: 3001
+      DB_HOST: postgres-authz
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: authz
+    depends_on:
+      - postgres-authz
+    ports:
+      - '3001:3001'
+
+  audit-service:
+    build: ./services/audit-service
+    environment:
+      PORT: 3004
+      DB_HOST: postgres-audit
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: audit
+    depends_on:
+      - postgres-audit
+    ports:
+      - '3004:3004'
+
+  notification-service:
+    build: ./services/notification-service
+    environment:
+      PORT: 3003
+      DB_HOST: postgres-notification
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: notification
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: no-reply@empresa.com
+    depends_on:
+      - postgres-notification
+      - mailhog
+    ports:
+      - '3003:3003'
+
+  payroll-service:
+    build: ./services/payroll-service
+    environment:
+      PORT: 3002
+      DB_HOST: postgres-payroll
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: payroll
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: http://localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: payroll-csv
+      NOTIFICATION_SERVICE_URL: http://notification-service:3003
+      FINANCE_SERVICE_URL: http://finance-mock:3011/finance/process
+      AUDIT_SERVICE_URL: http://audit-service:3004/logs
+    depends_on:
+      - postgres-payroll
+      - minio
+      - minio-init
+      - notification-service
+      - finance-mock
+      - audit-service
+    ports:
+      - '3002:3002'
+
+  api-gateway:
+    build: ./api-gateway
+    environment:
+      PORT: 3000
+      OAUTH_INTROSPECTION_URL: http://oauth-mock:3010/oauth/introspect
+      AUTHZ_SERVICE_URL: http://authz-service:3001
+      PAYROLL_SERVICE_URL: http://payroll-service:3002
+      AUDIT_SERVICE_URL: http://audit-service:3004
+    depends_on:
+      - oauth-mock
+      - authz-service
+      - payroll-service
+      - audit-service
+    ports:
+      - '3000:3000'
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:3000
+    depends_on:
+      - api-gateway
+    ports:
+      - '5173:5173'
+
+volumes:
+  authz_db:
+  payroll_db:
+  notification_db:
+  audit_db:
+  minio_data:

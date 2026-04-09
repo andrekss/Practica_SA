@@ -1,0 +1,99 @@
+replicaCount: 2
+
+image:
+  registry: ghcr.io
+  repository: "" # Will be overridden
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "microservices-staging"
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+  hosts:
+    - host: "staging.example.com"
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: staging-tls
+      hosts:
+        - "staging.example.com"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Environment-specific configs
+environment: staging
+logLevel: info
+debug: false
+
+# Database configs
+database:
+  authz:
+    host: "postgres-authz"
+    port: 5432
+    name: "authz"
+  payroll:
+    host: "postgres-payroll"
+    port: 5432
+    name: "payroll"
+  notification:
+    host: "postgres-notification"
+    port: 5432
+    name: "notification"
+  audit:
+    host: "postgres-audit"
+    port: 5432
+    name: "audit"
+
+# Services configuration
+services:
+  apiGateway:
+    replicaCount: 2
+    port: 3000
+  frontend:
+    replicaCount: 1
+    port: 80
+  auditService:
+    replicaCount: 1
+    port: 3001
+  authzService:
+    replicaCount: 1
+    port: 3002
+  notificationService:
+    replicaCount: 1
+    port: 3003
+  payrollService:
+    replicaCount: 1
+    port: 3004
